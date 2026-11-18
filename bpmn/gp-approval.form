@@ -1,0 +1,40 @@
+{
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": { "name": "Camunda Modeler", "version": "5.40.0" },
+  "schemaVersion": 18,
+  "id": "gp-approval-form",
+  "type": "default",
+  "components": [
+    {
+      "id": "Text_Header",
+      "type": "text",
+      "text": "## GP approval gate — high-risk LP\nThe ML model flagged **{{highRiskLp.lpId}}** on capital call **{{callId}}** (fund {{fundId}}) with a default-risk score of **{{highRiskLp.riskScore}}** (threshold 0.70).\n\n| | |\n|---|---|\n| Commitment | ${{highRiskLp.commitmentUSD}} |\n| Draw amount | ${{highRiskLp.drawAmountUSD}} |\n| Amount committed this call | ${{highRiskLp.amountUSD}} |\n| Contact | {{highRiskLp.email}} |\n\n**Waive** accepts the commitment as-is. **Enforce** keeps the commitment but issues a formal compliance/enforcement notice to the LP."
+    },
+    {
+      "id": "Radio_Action",
+      "type": "radio",
+      "key": "gpAction",
+      "label": "Decision",
+      "values": [
+        { "label": "Waive — accept LP commitment", "value": "waive" },
+        { "label": "Enforce — issue compliance enforcement notice", "value": "enforce" }
+      ],
+      "validate": { "required": true }
+    },
+    {
+      "id": "Field_GPName",
+      "type": "textfield",
+      "key": "gpName",
+      "label": "Approving GP",
+      "defaultValue": "Jane Doe (Managing Partner)",
+      "validate": { "required": true }
+    },
+    {
+      "id": "Field_Comment",
+      "type": "textarea",
+      "key": "gpComment",
+      "label": "Rationale (audit trail)"
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capital Call Control Room</title>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--ink:#1d2433;--muted:#667085;--line:#e4e7ec;--accent:#fc5d0d;--ok:#12805c;--warn:#b54708;--bad:#b42318;--info:#175cd3}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:#10141f;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header .sub{color:#aab1c0;font-size:12px}
+  header nav{margin-left:auto;display:flex;gap:14px}
+  header a{color:#ffb38a;text-decoration:none;font-size:13px}
+  main{max-width:1400px;margin:0 auto;padding:20px 16px;display:grid;grid-template-columns:320px 1fr;gap:16px}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 12px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+  input,select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit}
+  button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}
+  button.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  button.small{padding:3px 8px;font-size:12px}
+  button.danger{background:var(--bad)}
+  .calls div{padding:8px 10px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .calls div:hover{background:#f2f4f7}
+  .calls div.sel{border-color:var(--accent);background:#fff4ed}
+  .calls small{color:var(--muted);display:block}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .v{font-size:22px;font-weight:650;font-variant-numeric:tabular-nums}
+  .kpi .l{font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  th{color:var(--muted);font-weight:600;font-size:12px}
+  td.num,th.num{text-align:right}
+  .b{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600;background:#f2f4f7;color:#344054}
+  .b.committed,.b.completed,.b.settled,.b.waive{background:#ecfdf3;color:var(--ok)}
+  .b.overdue,.b.awaiting_gp,.b.pending,.b.deferred,.b.enforce{background:#fffaeb;color:var(--warn)}
+  .b.defaulted,.b.cancelled{background:#fef3f2;color:var(--bad)}
+  .b.notified,.b.awaiting_lps,.b.issued,.b.aggregated,.b.risk_scored{background:#eff8ff;color:var(--info)}
+  .risk-hi{color:var(--bad);font-weight:700}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .timeline{max-height:320px;overflow:auto;font-size:13px}
+  .timeline div{padding:5px 0;border-bottom:1px dashed var(--line)}
+  .timeline code{color:var(--accent);font-weight:600}
+  .muted{color:var(--muted)}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:1100px){.grid2{grid-template-columns:1fr}}
+  .scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Capital Call Control Room</h1><div class="sub">Intelligent Capital Call &amp; Liquidity Orchestration · Camunda 8 + Go</div></div>
+  <nav><a id="lnkOperate" target="_blank">Operate ↗</a><a id="lnkTasklist" target="_blank">Tasklist ↗</a><a id="lnkSes" target="_blank">Email/Slack log ↗</a></nav>
+</header>
+<main>
+  <aside>
+    <div class="card">
+      <h2>Issue a capital call</h2>
+      <label>Target amount (USD)</label><input id="fTarget" type="number" value="50000000">
+      <label>Deadline (business days)</label><input id="fDeadline" type="number" value="10">
+      <label>Demo speed — seconds per "day" (0 = real days)</label><input id="fSpd" type="number" value="5">
+      <div style="margin-top:12px"><button id="btnStart">Issue capital call to all 10 LPs</button></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Or run the scripted demo: <code>make demo</code></p>
+    </div>
+    <div class="card"><h2>Capital calls</h2><div class="calls" id="calls"></div></div>
+  </aside>
+  <section id="detail"><div class="card empty">Select or issue a capital call.</div></section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', {maximumFractionDigits: 0});
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let cfg = {}, selected = new URLSearchParams(location.search).get('call');
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const post = (p, b) => api(p, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b || {})});
+
+async function init() {
+  cfg = await api('/api/config');
+  $('#lnkOperate').href = cfg.camundaUrl + '/operate';
+  $('#lnkTasklist').href = cfg.camundaUrl + '/tasklist';
+  $('#lnkSes').href = cfg.sesUrl;
+  refresh(); setInterval(refresh, 2000);
+}
+
+$('#btnStart').onclick = async () => {
+  try {
+    const r = await post('/api/capital-calls', {targetAmountUSD: +$('#fTarget').value, deadlineDays: +$('#fDeadline').value, secondsPerDay: +$('#fSpd').value});
+    selected = r.callId; history.replaceState(null, '', '?call=' + r.callId); setTimeout(refresh, 800);
+  } catch (e) { alert(e.message); }
+};
+
+async function refresh() {
+  const calls = await api('/api/capital-calls').catch(() => []);
+  $('#calls').innerHTML = calls.map(c => `<div class="${c.call_id === selected ? 'sel' : ''}" data-id="${esc(c.call_id)}">
+     <b>${esc(c.call_id)}</b> <span class="b ${esc(c.status)}">${esc(c.status)}</span>
+     <small>${fmt(c.received_amount_usd)} of ${fmt(c.target_amount_usd)} · ${c.committed_count}/${c.lp_count} LPs</small></div>`).join('') || '<span class="muted">None yet</span>';
+  document.querySelectorAll('#calls div[data-id]').forEach(d => d.onclick = () => { selected = d.dataset.id; history.replaceState(null, '', '?call=' + selected); refresh(); });
+  if (selected) renderDetail(await api('/api/capital-calls/' + encodeURIComponent(selected)).catch(() => null));
+}
+
+function renderDetail(d) {
+  if (!d) { $('#detail').innerHTML = '<div class="card empty">Waiting for the process to issue the call…</div>'; return; }
+  const c = d.call, open = ['issued', 'awaiting_lps'].includes(c.status);
+  const operate = `${cfg.camundaUrl}/operate/processes/${c.process_instance_key}`;
+  const lpRows = d.lps.map(l => {
+    const pending = open && !['committed', 'deferred', 'defaulted', 'cancelled'].includes(l.status);
+    return `<tr><td><b>${esc(l.lp_id)}</b><br><span class="muted">${esc(l.name)}</span></td>
+      <td><span class="b ${esc(l.status)}">${esc(l.status)}</span>${l.followup_stage ? ` <span class="muted">follow-up ${l.followup_stage}/3</span>` : ''}</td>
+      <td class="num">${fmt(l.draw_amount_usd)}</td><td class="num">${fmt(l.committed_usd)}</td>
+      <td class="num ${l.risk_score > 0.7 ? 'risk-hi' : ''}">${l.risk_score == null ? '—' : l.risk_score.toFixed(2)}</td>
+      <td>${l.gp_action ? `<span class="b ${esc(l.gp_action)}">${esc(l.gp_action)}</span>` : ''}</td>
+      <td>${pending ? `<div class="row"><button class="small" data-commit="${esc(l.lp_id)}" data-amt="${l.draw_amount_usd}">Commit</button><button class="small sec" data-defer="${esc(l.lp_id)}">Defer</button></div>` : ''}</td></tr>`;
+  }).join('');
+  const escRows = d.escalations.map(e => `<tr><td><b>${esc(e.lp_id)}</b></td><td class="num risk-hi">${e.risk_score.toFixed(2)}</td>
+      <td><span class="b ${esc(e.action || e.status)}">${esc(e.action || e.status)}</span> ${e.gp_name ? '<span class="muted">by ' + esc(e.gp_name) + '</span>' : ''}</td>
+      <td>${e.status === 'pending' ? `<div class="row"><button class="small" data-gp="waive" data-lp="${esc(e.lp_id)}">Waive</button><button class="small danger" data-gp="enforce" data-lp="${esc(e.lp_id)}">Enforce</button>
+      <a href="${cfg.camundaUrl}/tasklist" target="_blank" class="muted" style="font-size:12px">or in Tasklist ↗</a></div>` : ''}</td></tr>`).join('');
+  const ledgerRows = d.ledger.map(l => `<tr><td>${esc(l.debit_account)}</td><td>${esc(l.credit_account)}</td><td class="num">${fmt(l.amount_usd)}</td><td class="muted">${esc(l.wire_reference)}</td></tr>`).join('');
+  const events = d.events.slice().reverse().map(e => `<div><span class="muted">${new Date(e.created_at).toLocaleTimeString()}</span> <code>${esc(e.step)}</code> ${esc(e.detail)}</div>`).join('');
+  $('#detail').innerHTML = `
+    <div class="card"><div class="row" style="justify-content:space-between">
+      <div><h2 style="margin:0">${esc(c.call_id)} · ${esc(c.fund_id)}</h2><span class="b ${esc(c.status)}">${esc(c.status)}</span>
+        <span class="muted">process instance <a href="${operate}" target="_blank">${esc(c.process_instance_key)} ↗</a></span></div>
+      <div class="row">${open ? `<button class="sec" id="btnForce">Force settlement</button><button class="danger" id="btnCancel">Cancel call</button>` : ''}
+        ${c.report_path ? `<a href="/reports/${esc(c.call_id)}.pdf" target="_blank"><button>PDF report</button></a><a href="/reports/${esc(c.call_id)}.json" target="_blank"><button class="sec">JSON</button></a>` : ''}</div></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Target</div><div class="v">${fmt(c.target_amount_usd)}</div></div>
+      <div class="kpi"><div class="l">LP capital committed</div><div class="v">${fmt(c.received_amount_usd)}</div></div>
+      <div class="kpi"><div class="l">Liquidity gap</div><div class="v">${c.gap_percent == null ? '—' : c.gap_percent.toFixed(2) + '%'}</div><div class="l">${fmt(c.gap_usd)}</div></div>
+      <div class="kpi"><div class="l">Bridge drawdown</div><div class="v">${c.bridge_triggered ? fmt(c.bridge_amount_usd) : (c.gap_percent == null ? '—' : 'not needed')}</div><div class="l">${c.bridge_triggered ? 'fee ' + fmt(c.bridge_fee_usd) : ''}</div></div>
+      <div class="kpi"><div class="l">Concentration (HHI)</div><div class="v">${c.concentration_hhi == null ? '—' : c.concentration_hhi.toFixed(3)}</div></div>
+    </div>
+    <div class="card scroll"><h2>Limited partners</h2><table><thead><tr><th>LP</th><th>Status</th><th class="num">Draw</th><th class="num">Funded</th><th class="num">Risk</th><th>GP</th><th>LP portal</th></tr></thead><tbody>${lpRows}</tbody></table></div>
+    <div class="grid2">
+      <div class="card"><h2>GP approval gate</h2>${escRows ? `<table><thead><tr><th>LP</th><th class="num">Risk</th><th>Decision</th><th></th></tr></thead><tbody>${escRows}</tbody></table>` : '<span class="muted">No escalations yet (raised after risk scoring for committed LPs with score &gt; 0.70).</span>'}</div>
+      <div class="card"><h2>Process timeline</h2><div class="timeline">${events || '<span class="muted">—</span>'}</div></div>
+    </div>
+    <div class="card scroll"><h2>Settlement ledger (double entry)</h2>${ledgerRows ? `<table><thead><tr><th>Debit</th><th>Credit</th><th class="num">Amount</th><th>Reference</th></tr></thead><tbody>${ledgerRows}</tbody></table>` : '<span class="muted">Posted at settlement.</span>'}</div>`;
+  const id = encodeURIComponent(c.call_id), act = p => p.then(refresh).catch(e => alert(e.message));
+  document.querySelectorAll('[data-commit]').forEach(b => b.onclick = () => act(post(`/api/capital-calls/${id}/lp-response`, {lpId: b.dataset.commit, amount: +b.dataset.amt})));
+  document.querySelectorAll('[data-defer]').forEach(b => b.onclick = () => act(post(`/api/capital-calls/${id}/lp-response`, {lpId: b.dataset.defer, status: 'deferred'})));
+  document.querySelectorAll('[data-gp]').forEach(b => b.onclick = () => act(post(`/api/capital-calls/${id}/gp-decision`, {lpId: b.dataset.lp, action: b.dataset.gp, gpName: 'Dashboard GP'})));
+  const f = $('#btnForce'); if (f) f.onclick = () => confirm('Close the LP response window now?') && act(post(`/api/capital-calls/${id}/force-settlement`));
+  const x = $('#btnCancel'); if (x) x.onclick = () => confirm('Cancel this capital call?') && act(post(`/api/capital-calls/${id}/cancel-call`));
+}
+init();
+</script>
+</body>
+</html>
