@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Same output as Go's standard "log" package used by the original services:
+  "2006/01/02 15:04:05 message" on stderr.
+  The Camunda client, HikariCP and the HTTP/gRPC libraries only report warnings and errors.
+-->
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Stderr" target="SYSTEM_ERR">
+      <PatternLayout pattern="%d{yyyy/MM/dd HH:mm:ss} %m%n%throwable" charset="UTF-8"/>
+    </Console>
+    <!-- Library warnings on one line ("message: cause"), like the Go worker's "[worker] activate …: err". -->
+    <Console name="StderrOneLine" target="SYSTEM_ERR">
+      <PatternLayout pattern="%d{yyyy/MM/dd HH:mm:ss} %m%notEmpty{: %ex{short.message}}%n" alwaysWriteExceptions="false" charset="UTF-8"/>
+    </Console>
+  </Appenders>
+  <Loggers>
+    <Logger name="io.camunda" level="warn" additivity="false"><AppenderRef ref="StderrOneLine"/></Logger>
+    <Logger name="com.zaxxer.hikari" level="warn" additivity="false"><AppenderRef ref="StderrOneLine"/></Logger>
+    <Logger name="org.apache.hc" level="warn" additivity="false"><AppenderRef ref="StderrOneLine"/></Logger>
+    <Logger name="io.grpc" level="warn" additivity="false"><AppenderRef ref="StderrOneLine"/></Logger>
+    <Logger name="io.netty" level="warn" additivity="false"><AppenderRef ref="StderrOneLine"/></Logger>
+    <Root level="info">
+      <AppenderRef ref="Stderr"/>
+    </Root>
+  </Loggers>
+</Configuration>

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Intelligent Capital Call & Liquidity Orchestration on Camunda 8 (Java edition).
+    One artifact, several entry points (same layout as the former Go module with cmd/*):
+      java -jar target/camunda-assetmgmt.jar worker|apiserver|mockses|mockcreditfacility|demodriver
+  -->
+  <groupId>com.vishworks</groupId>
+  <artifactId>camunda-assetmgmt</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Must match the orchestration cluster in docker-compose.yml (camunda/camunda:8.10.9). -->
+    <camunda.version>8.10.9</camunda.version>
+    <!-- Versions below are the ones Camunda 8.10.9 itself is built/shipped with. -->
+    <jackson.version>2.22.4</jackson.version>
+    <postgresql.version>42.7.14</postgresql.version>
+    <hikaricp.version>7.1.0</hikaricp.version>
+    <log4j.version>2.26.1</log4j.version>
+    <junit.version>5.13.4</junit.version>
+  </properties>
+
+  <dependencies>
+    <!-- Official Camunda 8 Java client (replaces the hand-written REST client in internal/camunda). -->
+    <dependency>
+      <groupId>io.camunda</groupId>
+      <artifactId>camunda-client-java</artifactId>
+      <version>${camunda.version}</version>
+    </dependency>
+
+    <!-- JSON (replaces Go encoding/json). Same version the Camunda client uses. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <!-- PostgreSQL driver + connection pool (replace github.com/jackc/pgx/v5 and pgxpool). -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${postgresql.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <version>${hikaricp.version}</version>
+    </dependency>
+
+    <!-- Logging: SLF4J (used by the Camunda client) bound to Log4j 2, formatted like Go's log package. -->
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-slf4j2-impl</artifactId>
+      <version>${log4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>camunda-assetmgmt</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.14.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.3</version>
+      </plugin>
+      <plugin>
+        <!-- Self-contained executable jar (the Java analogue of the static Go binaries). -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/*/module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.vishworks.assetmgmt.Main</mainClass>
+                  <manifestEntries>
+                    <Multi-Release>true</Multi-Release>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

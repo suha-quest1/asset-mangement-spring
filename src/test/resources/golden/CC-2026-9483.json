@@ -1,0 +1,202 @@
+{
+  "bridgeResult": {
+    "confirmationId": "BRIDGE-CC-2026-9483-1795030055030",
+    "drawdownUSD": 16379310.34,
+    "feeUSD": 245689.66
+  },
+  "callId": "CC-2026-9483",
+  "fundId": "FUND-GROWTH-IV",
+  "generatedAt": "2026-11-18T19:27:41Z",
+  "gpDecisions": [
+    {
+      "lpId": "lp-08",
+      "riskScore": 0.82,
+      "action": "enforce",
+      "gpName": "Dashboard GP"
+    }
+  ],
+  "ledger": [
+    {
+      "lpId": "lp-02",
+      "debit": "fund/cash",
+      "credit": "lp/lp-02/capital",
+      "amountUSD": 3448275.86,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-02"
+    },
+    {
+      "lpId": "lp-03",
+      "debit": "fund/cash",
+      "credit": "lp/lp-03/capital",
+      "amountUSD": 5172413.79,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-03"
+    },
+    {
+      "lpId": "lp-04",
+      "debit": "fund/cash",
+      "credit": "lp/lp-04/capital",
+      "amountUSD": 2873563.22,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-04"
+    },
+    {
+      "lpId": "lp-06",
+      "debit": "fund/cash",
+      "credit": "lp/lp-06/capital",
+      "amountUSD": 2298850.57,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-06"
+    },
+    {
+      "lpId": "lp-07",
+      "debit": "fund/cash",
+      "credit": "lp/lp-07/capital",
+      "amountUSD": 8620689.66,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-07"
+    },
+    {
+      "lpId": "lp-08",
+      "debit": "fund/cash",
+      "credit": "lp/lp-08/capital",
+      "amountUSD": 7183908.05,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-08"
+    },
+    {
+      "lpId": "lp-09",
+      "debit": "fund/cash",
+      "credit": "lp/lp-09/capital",
+      "amountUSD": 4022988.51,
+      "entryType": "capital_contribution",
+      "wireReference": "WIRE-CC-2026-9483-lp-09"
+    },
+    {
+      "debit": "fund/cash",
+      "credit": "liability/credit-facility",
+      "amountUSD": 16379310.34,
+      "entryType": "bridge_drawdown",
+      "wireReference": "BRIDGE-CC-2026-9483-1795030055030"
+    },
+    {
+      "debit": "expense/financing-fees",
+      "credit": "fund/cash",
+      "amountUSD": 245689.66,
+      "entryType": "bridge_fee",
+      "wireReference": "BRIDGE-CC-2026-9483-1795030055030"
+    }
+  ],
+  "lpDetails": [
+    {
+      "lpId": "lp-01",
+      "email": "lp-01@example.com",
+      "commitmentUSD": 15000000,
+      "drawAmountUSD": 4310344.83,
+      "status": "deferred",
+      "amountUSD": 0,
+      "riskScore": 0.0912
+    },
+    {
+      "lpId": "lp-02",
+      "email": "lp-02@example.com",
+      "commitmentUSD": 12000000,
+      "drawAmountUSD": 3448275.86,
+      "status": "committed",
+      "amountUSD": 3448275.86,
+      "riskScore": 0.4598
+    },
+    {
+      "lpId": "lp-03",
+      "email": "lp-03@example.com",
+      "commitmentUSD": 18000000,
+      "drawAmountUSD": 5172413.79,
+      "status": "committed",
+      "amountUSD": 5172413.79,
+      "riskScore": 0.3514
+    },
+    {
+      "lpId": "lp-04",
+      "email": "lp-04@example.com",
+      "commitmentUSD": 10000000,
+      "drawAmountUSD": 2873563.22,
+      "status": "committed",
+      "amountUSD": 2873563.22,
+      "riskScore": 0.1944
+    },
+    {
+      "lpId": "lp-05",
+      "email": "lp-05@example.com",
+      "commitmentUSD": 22000000,
+      "drawAmountUSD": 6321839.08,
+      "status": "deferred",
+      "amountUSD": 0,
+      "riskScore": 0.2567
+    },
+    {
+      "lpId": "lp-06",
+      "email": "lp-06@example.com",
+      "commitmentUSD": 8000000,
+      "drawAmountUSD": 2298850.57,
+      "status": "committed",
+      "amountUSD": 2298850.57,
+      "riskScore": 0.1443
+    },
+    {
+      "lpId": "lp-07",
+      "email": "lp-07@example.com",
+      "commitmentUSD": 30000000,
+      "drawAmountUSD": 8620689.66,
+      "status": "committed",
+      "amountUSD": 8620689.66,
+      "riskScore": 0.2982
+    },
+    {
+      "lpId": "lp-08",
+      "email": "lp-08@example.com",
+      "commitmentUSD": 25000000,
+      "drawAmountUSD": 7183908.05,
+      "status": "committed",
+      "amountUSD": 7183908.05,
+      "riskScore": 0.82
+    },
+    {
+      "lpId": "lp-09",
+      "email": "lp-09@example.com",
+      "commitmentUSD": 14000000,
+      "drawAmountUSD": 4022988.51,
+      "status": "committed",
+      "amountUSD": 4022988.51,
+      "riskScore": 0.5033
+    },
+    {
+      "lpId": "lp-10",
+      "email": "lp-10@example.com",
+      "commitmentUSD": 20000000,
+      "drawAmountUSD": 5747126.44,
+      "status": "deferred",
+      "amountUSD": 0,
+      "riskScore": 0.248
+    }
+  ],
+  "orchestrator": "Camunda 8",
+  "portfolioRisk": {
+    "concentrationScore": 0.1719,
+    "topRiskyLPs": [
+      "lp-08",
+      "lp-09"
+    ],
+    "averageRiskScore": 0.3367,
+    "expectedLossUSD": 14779712.65
+  },
+  "processInstanceKey": "2251799813686610",
+  "reportType": "LiquidityReport",
+  "settlementMode": "normal",
+  "summary": {
+    "bridgeTriggered": true,
+    "gapPercent": 32.76,
+    "gapUSD": 16379310.34,
+    "targetAmountUSD": 50000000,
+    "totalCommitted": 33620689.66
+  }
+}

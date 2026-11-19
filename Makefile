@@ -1,4 +1,6 @@
-.PHONY: up down clean status logs demo demo-auto deploy bpmn test
+.PHONY: up down clean status logs demo demo-auto deploy bpmn build test
+
+JAR := target/camunda-assetmgmt.jar
 
 up:            ## build & start Camunda 8.10 + all services
 	docker compose up -d --build
@@ -19,11 +21,16 @@ status:
 logs:          ## follow worker + api logs
 	docker compose logs -f worker api-server
 
-demo:          ## scripted demo; GP decision left to Tasklist
-	go run ./cmd/demodriver
+$(JAR): pom.xml $(shell find src/main -type f 2>/dev/null)
+	mvn -B -q -DskipTests package
 
-demo-auto:     ## scripted demo; driver auto-waives the GP gate
-	go run ./cmd/demodriver -gp-decision waive
+build: $(JAR)  ## build the executable jar (JDK 21 + Maven)
+
+demo: $(JAR)   ## scripted demo; GP decision left to Tasklist
+	java -jar $(JAR) demodriver
+
+demo-auto: $(JAR)  ## scripted demo; driver auto-waives the GP gate
+	java -jar $(JAR) demodriver -gp-decision waive
 
 deploy:        ## redeploy BPMN + form without restarting
 	curl -s -X POST http://localhost:8080/v2/deployments \
@@ -32,5 +39,5 @@ deploy:        ## redeploy BPMN + form without restarting
 bpmn:          ## regenerate BPMN files from tools/gen_bpmn.py
 	python3 tools/gen_bpmn.py
 
-test:
-	go vet ./... && go build ./...
+test:          ## compile and run the unit tests
+	mvn -B test

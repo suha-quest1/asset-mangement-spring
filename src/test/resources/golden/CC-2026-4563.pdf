@@ -1,0 +1,75 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 3510 >>
+stream
+BT /F2 16.0 Tf 50.0 762.4 Td (Capital Call Liquidity Report) Tj ET
+BT /F1 9.5 Tf 50.0 749.6 Td (Call CC-2026-4563   |   Fund FUND-GROWTH-IV   |   Generated 2026-11-18 19:27 UTC) Tj ET
+BT /F1 9.5 Tf 50.0 736.7 Td (Orchestrated by Camunda 8 - process instance 2251799813685440   |   settlement mode: normal) Tj ET
+BT /F2 11.0 Tf 50.0 711.9 Td (1. Liquidity summary) Tj ET
+BT /F3 8.5 Tf 50.0 700.4 Td (Target capital call                $50,000,000.00) Tj ET
+BT /F3 8.5 Tf 50.0 688.9 Td (LP capital committed                $4,310,344.83) Tj ET
+BT /F3 8.5 Tf 50.0 677.5 Td (Liquidity gap                      $45,689,655.17  \(91.38%\)) Tj ET
+BT /F3 8.5 Tf 50.0 666.0 Td (Bridge drawdown                    $45,689,655.17  fee $685,344.83) Tj ET
+BT /F3 8.5 Tf 50.0 654.5 Td (Facility confirmation        BRIDGE-CC-2026-4563-1795030023819) Tj ET
+BT /F2 11.0 Tf 50.0 629.7 Td (2. LP responses and default-risk scores) Tj ET
+BT /F3 8.5 Tf 50.0 618.2 Td (LP      Status                 Draw           Funded   Risk FollowUps) Tj ET
+BT /F3 8.5 Tf 50.0 606.7 Td (lp-01   committed     $4,310,344.83    $4,310,344.83   0.09         3) Tj ET
+BT /F3 8.5 Tf 50.0 595.2 Td (lp-02   defaulted     $3,448,275.86            $0.00   0.91         3) Tj ET
+BT /F3 8.5 Tf 50.0 583.8 Td (lp-03   defaulted     $5,172,413.79            $0.00   0.80         3) Tj ET
+BT /F3 8.5 Tf 50.0 572.3 Td (lp-04   defaulted     $2,873,563.22            $0.00   0.75         3) Tj ET
+BT /F3 8.5 Tf 50.0 560.8 Td (lp-05   defaulted     $6,321,839.08            $0.00   0.77         3) Tj ET
+BT /F3 8.5 Tf 50.0 549.3 Td (lp-06   defaulted     $2,298,850.57            $0.00   0.82         3) Tj ET
+BT /F3 8.5 Tf 50.0 537.9 Td (lp-07   defaulted     $8,620,689.66            $0.00   0.81         3) Tj ET
+BT /F3 8.5 Tf 50.0 526.4 Td (lp-08   defaulted     $7,183,908.05            $0.00   0.82         3) Tj ET
+BT /F3 8.5 Tf 50.0 514.9 Td (lp-09   defaulted     $4,022,988.51            $0.00   0.87         3) Tj ET
+BT /F3 8.5 Tf 50.0 503.4 Td (lp-10   defaulted     $5,747,126.44            $0.00   0.79         3) Tj ET
+BT /F2 11.0 Tf 50.0 478.6 Td (3. Portfolio risk) Tj ET
+BT /F3 8.5 Tf 50.0 467.1 Td (Concentration \(HHI\): 1.0000   Avg risk: 0.7431   Expected loss: $393,103.45) Tj ET
+BT /F3 8.5 Tf 50.0 455.6 Td (Top risky LPs: [lp-02 lp-09 lp-06]) Tj ET
+BT /F2 11.0 Tf 50.0 430.8 Td (4. GP escalations \(human-in-the-loop\)) Tj ET
+BT /F1 9.5 Tf 50.0 418.0 Td (No LP exceeded the 0.70 risk threshold.) Tj ET
+BT /F2 11.0 Tf 50.0 393.1 Td (5. Settlement ledger \(double entry\)) Tj ET
+BT /F3 8.5 Tf 50.0 381.6 Td (Debit                  Credit                                 Amount  Reference) Tj ET
+BT /F3 8.5 Tf 50.0 370.2 Td (fund/cash              lp/lp-01/capital                $4,310,344.83  WIRE-CC-2026-4563-lp-01) Tj ET
+BT /F3 8.5 Tf 50.0 358.7 Td (fund/cash              liability/credit-facility      $45,689,655.17  BRIDGE-CC-2026-4563-1795030023819) Tj ET
+BT /F3 8.5 Tf 50.0 347.2 Td (expense/financing-fees fund/cash                         $685,344.83  BRIDGE-CC-2026-4563-1795030023819) Tj ET
+BT /F2 11.0 Tf 50.0 322.4 Td (Attestation) Tj ET
+BT /F1 9.5 Tf 50.0 309.5 Td (This report was generated automatically at the end of the capital call process. Every step \(notice,) Tj ET
+BT /F1 9.5 Tf 50.0 296.7 Td (follow-ups, risk scoring, bridge financing, GP decisions, settlement\) is auditable in Camunda Operate.) Tj ET
+BT /F1 8 Tf 50.0 30.0 Td (Page 1 - Intelligent Capital Call & Liquidity Orchestration - Camunda 8) Tj ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000561 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+4122
+%%EOF

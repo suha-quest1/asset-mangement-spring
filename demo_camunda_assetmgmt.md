@@ -6,7 +6,7 @@ This guide covers starting and stopping the local stack and gives a step-by-step
 |---|---|
 | **Use case** | `use_case.pdf`: Asset Management, Intelligent Capital Call & Liquidity Orchestration |
 | **Orchestrator** | Camunda 8.10.9, the latest stable release, self-managed and open source. It runs as the lightweight "orchestration cluster" container: Zeebe engine, Operate, Tasklist and REST API, with H2 secondary storage. |
-| **Implementation** | Go 1.24. The job workers, API server and mocks call the Camunda 8 REST API (`/v2`) directly. |
+| **Implementation** | Java 21 (Maven). The job workers and API server use the official Camunda 8 Java client (`io.camunda:camunda-client-java` 8.10.9) over the Orchestration Cluster REST API (`/v2`). Migrated from the original Go implementation, see [GO_TO_JAVA_MIGRATION_REPORT.md](GO_TO_JAVA_MIGRATION_REPORT.md). |
 | **Ported from** | `../temporal-asset-management`, the Temporal version of the same use case |
 
 ---
@@ -19,14 +19,18 @@ camunda-asset-management/
 │   ├── capital-call.bpmn      # parent process   (≈ Temporal CapitalCallWorkflow)
 │   ├── lp-response.bpmn       # child process    (≈ Temporal LPResponseWorkflow)
 │   └── gp-approval.form       # Tasklist form for the human GP approval gate
-├── cmd/
-│   ├── worker/                # Go job workers (all service tasks) + auto-deploys bpmn/
-│   ├── apiserver/             # REST/webhook endpoints + live dashboard (:8090)
-│   ├── demodriver/            # scripted 10-LP demo
-│   ├── mockses/               # email / Slack log viewer (:8081)
-│   └── mockcreditfacility/    # bridge credit line stub (:8082)
-├── internal/camunda/          # tiny Go client for the Camunda 8 REST API + job worker loop
-├── internal/handlers/         # business logic of every BPMN service task
+├── pom.xml                    # Maven build: one executable jar for every service
+├── src/main/java/com/vishworks/assetmgmt/
+│   ├── Main.java              # entry point: java -jar … worker|apiserver|mockses|mockcreditfacility|demodriver
+│   ├── cmd/WorkerMain         # job workers (all service tasks) + auto-deploys bpmn/
+│   ├── cmd/ApiServerMain      # REST/webhook endpoints + live dashboard (:8090)
+│   ├── cmd/DemoDriverMain     # scripted 10-LP demo
+│   ├── cmd/MockSesMain        # email / Slack log viewer (:8081)
+│   ├── cmd/MockCreditFacilityMain # bridge credit line stub (:8082)
+│   ├── camunda/               # Camunda Java client setup + job worker registration (retries, back-off)
+│   ├── handlers/              # business logic of every BPMN service task + liquidity report
+│   ├── db/  http/  json/  models/  report/  util/
+├── src/main/resources/static/dashboard.html   # the dashboard (unchanged)
 ├── services/ml-scorer/        # Flask default-risk scoring model (:5001)
 ├── db/                        # Postgres fund ledger schema + 10 seeded LPs
 ├── camunda/application.yaml   # Camunda 8.10 lightweight config (H2, basic auth demo/demo)
@@ -64,7 +68,7 @@ camunda-asset-management/
 ## 2. Prerequisites
 
 * Docker Desktop running, with at least 4 GB of memory for Docker. Camunda uses about 1–1.5 GB.
-* Go 1.24+ on the host, used only to run the demo driver with `make demo`. Without Go, use `docker compose --profile demo run --rm demo-driver`.
+* JDK 21 and Maven 3.9+ on the host, used only by `make demo`, `make build` and `make test`. Without them, use `docker compose --profile demo run --rm demo-driver`.
 * Free ports: **8080** (Camunda), 26500, 9600, **8090** (API/dashboard), 8081, 8082, 5001, 5433 (Postgres).
 
 > ⚠️ The Temporal version of this demo also uses port 8080 (Temporal UI). Stop it first: `cd ../temporal-asset-management && docker compose down`.
@@ -81,7 +85,7 @@ All commands run from `camunda-asset-management/`.
 make up            # = docker compose up -d --build, then waits until Camunda is healthy
 ```
 
-The first start pulls `camunda/camunda:8.10.9` (about 1 GB) and builds the Go images, which takes a few minutes. Later starts take about 30–40 s. At startup the worker deploys `capital-call.bpmn`, `lp-response.bpmn` and `gp-approval.form` automatically.
+The first start pulls `camunda/camunda:8.10.9` (about 1 GB) and builds the Java images (Maven downloads the dependencies on the first build), which takes a few minutes. Later starts take about 30–40 s. At startup the worker deploys `capital-call.bpmn`, `lp-response.bpmn` and `gp-approval.form` automatically.
 
 Check the stack:
 
@@ -145,7 +149,7 @@ The seeded LPs behave as follows:
 In a terminal:
 
 ```bash
-make demo          # go run ./cmd/demodriver   (the GP decision is left for you in Tasklist)
+make demo          # java -jar target/camunda-assetmgmt.jar demodriver   (the GP decision is left for you in Tasklist)
 ```
 
 You could also click **Issue capital call to all 10 LPs** in the dashboard (http://localhost:8090) and then press *Commit* per LP yourself, acting as the LP portal.
@@ -265,7 +269,7 @@ Inspect the ledger DB with `docker compose exec postgres psql -U assetmgmt -c 's
 |---|---|
 | `orchestration` never becomes healthy | Give Docker more memory (≥ 4 GB). Check `docker compose logs orchestration`. |
 | Port 8080 already in use | Stop the Temporal stack or any other service on 8080. |
-| Worker logs `activate …: connection refused` | Camunda is still starting; the worker retries automatically. |
+| Worker logs `waiting for Camunda …`, or Camunda client warnings about failed job activation (connection refused) | Camunda is still starting or restarting; the worker retries automatically. |
 | Driver says "capital call never appeared" | `docker compose logs worker`. Look for an incident on *Issue capital call* in Operate. |
 | GP decision returns 409 | The gate isn't open yet (it opens after the deadline and risk scoring) or has already been decided. |
 | Want a clean slate | `make clean && make up` |

@@ -1,8 +1,8 @@
 # Intelligent Capital Call & Liquidity Orchestration — Camunda 8 edition
-# Camunda 8.10 (latest stable) self-managed, lightweight distribution + Go services.
+# Camunda 8.10 (latest stable) self-managed, lightweight distribution + Java services.
 name: camunda-assetmgmt
 
-x-go-env: &go-env
+x-app-env: &app-env
   CAMUNDA_REST_ADDRESS: http://orchestration:8080
   CAMUNDA_PUBLIC_URL: http://localhost:8080
   PORTAL_PUBLIC_URL: http://localhost:8090
@@ -73,11 +73,11 @@ services:
     build: { context: ./services/ml-scorer }
     ports: ["5001:5001"]
 
-  # ─── Application (Go) ─────────────────────────────────────────────────
+  # ─── Application (Java) ───────────────────────────────────────────────
   worker: # Camunda job workers + BPMN deployment
     build: { context: ., args: { SERVICE: worker } }
     environment:
-      <<: *go-env
+      <<: *app-env
       SES_URL: http://mock-ses:8081
       ML_SCORER_URL: http://ml-scorer:5001
       CREDIT_FACILITY_URL: http://mock-credit-facility:8082
@@ -95,7 +95,7 @@ services:
   api-server: # REST/webhook endpoints + live dashboard
     build: { context: ., args: { SERVICE: apiserver } }
     environment:
-      <<: *go-env
+      <<: *app-env
       LISTEN_ADDR: ":8090"
       SES_PUBLIC_URL: http://localhost:8081
     ports: ["8090:8090"]
