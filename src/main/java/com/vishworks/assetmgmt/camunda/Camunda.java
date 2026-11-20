@@ -2,94 +2,19 @@ package com.vishworks.assetmgmt.camunda;
 
 import com.vishworks.assetmgmt.json.GoJson;
 import com.vishworks.assetmgmt.util.Errors;
-import io.camunda.client.CamundaClient;
-import io.camunda.client.CamundaClientBuilder;
-import io.camunda.client.CredentialsProvider;
 import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ClientHttpException;
-import io.camunda.client.api.command.DeployResourceCommandStep1;
 import io.camunda.client.api.command.ProblemException;
-import io.camunda.client.api.response.DeploymentEvent;
-import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
 
 /**
- * Creation and configuration of the official {@link CamundaClient}; replaces the
- * hand-written REST client in internal/camunda/client.go.
- *
- * <p>The Go client spoke only to the Orchestration Cluster REST API (/v2). The Java client
- * is therefore configured with {@code preferRestOverGrpc(true)} so every command
- * (deployment, process instance creation, message publication/correlation, job
- * activation/completion/failure, topology) goes over the same REST endpoints, and only
- * {@code CAMUNDA_REST_ADDRESS} is needed — exactly like before.
+ * Error helpers for Camunda client calls (HTTP status, 404 detection, Go-style error text).
+ * The {@link io.camunda.client.CamundaClient} itself is created and configured by the
+ * Camunda Spring Boot Starter (see application.yaml).
  */
 public final class Camunda {
   private Camunda() {}
-
-  /** HTTP timeout of the Go client (http.Client{Timeout: 60s}). */
-  static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
-
-  /**
-   * Builds a client for the given REST base URL. Basic authentication is applied when
-   * CAMUNDA_USERNAME is set (CAMUNDA_PASSWORD may be empty), as in camunda.New().
-   */
-  public static CamundaClient newClient(String baseUrl) {
-    String rest = baseUrl.replaceAll("/+$", "");
-    CamundaClientBuilder b = CamundaClient.newClientBuilder()
-        // Configuration comes only from this application's own environment variables,
-        // so the client's CAMUNDA_* auto-configuration cannot change behaviour.
-        .applyEnvironmentVariableOverrides(false)
-        .restAddress(URI.create(rest))
-        .preferRestOverGrpc(true)
-        .defaultRequestTimeout(REQUEST_TIMEOUT)
-        // Job handlers run on virtual threads: one per activated job, like the goroutine
-        // per job in the Go worker loop.
-        .jobHandlingExecutor(Executors.newVirtualThreadPerTaskExecutor(), true);
-    String user = System.getenv("CAMUNDA_USERNAME");
-    if (user != null && !user.isEmpty()) {
-      String pw = System.getenv("CAMUNDA_PASSWORD");
-      CredentialsProvider cp = CredentialsProvider.newBasicAuthCredentialsProviderBuilder()
-          .applyEnvironmentOverrides(false)
-          .username(user)
-          .password(pw == null ? "" : pw)
-          .build();
-      b.credentialsProvider(cp);
-    }
-    return b.build();
-  }
-
-  /** Blocks until the cluster answers the topology endpoint (WaitReady). */
-  public static void waitReady(CamundaClient client) throws InterruptedException {
-    while (true) {
-      try {
-        client.newTopologyRequest().send().join();
-        return;
-      } catch (RuntimeException e) {
-        Thread.sleep(3000);
-      }
-    }
-  }
-
-  /** Uploads BPMN / DMN / form files in a single deployment (Deploy). */
-  public static DeploymentEvent deploy(CamundaClient client, List<Path> files) throws Exception {
-    if (files.isEmpty()) {
-      throw new IllegalArgumentException("no resources to deploy");
-    }
-    DeployResourceCommandStep1 step = client.newDeployResourceCommand();
-    DeployResourceCommandStep1.DeployResourceCommandStep2 cmd = null;
-    for (Path f : files) {
-      byte[] data = Files.readAllBytes(f);
-      String name = f.getFileName().toString();
-      cmd = cmd == null ? step.addResourceBytes(data, name) : cmd.addResourceBytes(data, name);
-    }
-    return cmd.send().join();
-  }
 
   // ─── errors ───────────────────────────────────────────────────────────
 

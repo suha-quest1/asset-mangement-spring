@@ -1,0 +1,29 @@
+# Spring Boot configuration of the "worker" and "apiserver" roles (see Main).
+# Not to be confused with camunda/application.yaml, which configures the Camunda cluster.
+spring:
+  main:
+    banner-mode: "off"
+    web-application-type: none
+    keep-alive: true
+
+camunda:
+  client:
+    mode: self-managed
+    # Same variable and default as before; REST only (no gRPC port needed).
+    rest-address: ${CAMUNDA_REST_ADDRESS:http://localhost:8080}
+    prefer-rest-over-grpc: true
+    request-timeout: PT60S
+    # Credentials come from config/CamundaAuthConfiguration: HTTP basic auth when CAMUNDA_USERNAME
+    # is set (CAMUNDA_PASSWORD may be empty), otherwise none. Do not set camunda.client.auth.username/
+    # password here: the starter treats their mere presence as "basic auth".
+    auth:
+      method: none
+    worker:
+      defaults:
+        name: ${WORKER_NAME:capital-call-java-worker}
+        max-jobs-active: 16
+        timeout: PT60S
+        request-timeout: PT20S
+        poll-interval: PT0.2S
+        stream-enabled: false
+        retry-backoff: PT5S

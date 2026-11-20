@@ -16,6 +16,8 @@
 
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
+    <!-- Keep method parameter names (the Camunda starter inspects job-worker method parameters). -->
+    <maven.compiler.parameters>true</maven.compiler.parameters>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
     <!-- Must match the orchestration cluster in docker-compose.yml (camunda/camunda:8.10.9). -->
@@ -26,14 +28,60 @@
     <hikaricp.version>7.1.0</hikaricp.version>
     <log4j.version>2.26.1</log4j.version>
     <junit.version>5.13.4</junit.version>
+    <!-- The Spring Boot version camunda-spring-boot-starter ${camunda.version} is built against
+         (its POM declares org.springframework.boot:spring-boot 4.1.2). -->
+    <spring-boot.version>4.1.2</spring-boot.version>
   </properties>
 
+  <dependencyManagement>
+    <dependencies>
+      <!-- Imported before the Spring Boot BOM so that the versions this project pins (the ones
+           Camunda ${camunda.version} ships with) win over Spring Boot's managed versions. -->
+      <dependency>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>${jackson.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-bom</artifactId>
+        <version>${log4j.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
-    <!-- Official Camunda 8 Java client (replaces the hand-written REST client in internal/camunda). -->
+    <!-- Camunda Spring Boot Starter: @JobWorker job workers and the CamundaClient bean.
+         Brings camunda-client-java ${camunda.version} transitively. -->
     <dependency>
       <groupId>io.camunda</groupId>
-      <artifactId>camunda-client-java</artifactId>
+      <artifactId>camunda-spring-boot-starter</artifactId>
       <version>${camunda.version}</version>
+      <exclusions>
+        <!-- Logging stays on Log4j 2 (log4j2.xml); never pull in Logback. -->
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- JSON (replaces Go encoding/json). Same version the Camunda client uses. -->
@@ -89,38 +137,17 @@
         <version>3.5.3</version>
       </plugin>
       <plugin>
-        <!-- Self-contained executable jar (the Java analogue of the static Go binaries). -->
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.6.0</version>
+        <!-- Self-contained executable jar (Spring Boot repackage; nested jars keep the
+             META-INF/spring auto-configuration files of every dependency intact). -->
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <configuration>
+          <mainClass>com.vishworks.assetmgmt.Main</mainClass>
+        </configuration>
         <executions>
           <execution>
-            <phase>package</phase>
-            <goals><goal>shade</goal></goals>
-            <configuration>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
-              <filters>
-                <filter>
-                  <artifact>*:*</artifact>
-                  <excludes>
-                    <exclude>META-INF/*.SF</exclude>
-                    <exclude>META-INF/*.DSA</exclude>
-                    <exclude>META-INF/*.RSA</exclude>
-                    <exclude>module-info.class</exclude>
-                    <exclude>META-INF/versions/*/module-info.class</exclude>
-                  </excludes>
-                </filter>
-              </filters>
-              <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>com.vishworks.assetmgmt.Main</mainClass>
-                  <manifestEntries>
-                    <Multi-Release>true</Multi-Release>
-                  </manifestEntries>
-                </transformer>
-              </transformers>
-            </configuration>
+            <goals><goal>repackage</goal></goals>
           </execution>
         </executions>
       </plugin>

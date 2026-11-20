@@ -1,201 +1,82 @@
-package com.vishworks.assetmgmt.handlers;
+package com.vishworks.assetmgmt.service;
 
+import static com.vishworks.assetmgmt.service.NotificationClient.m;
 import static com.vishworks.assetmgmt.util.GoFmt.round2;
 import static com.vishworks.assetmgmt.util.GoFmt.sprintf;
+import static com.vishworks.assetmgmt.util.Lists.nz;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.vishworks.assetmgmt.camunda.JobWorkers;
-import com.vishworks.assetmgmt.camunda.JobWorkers.Job;
-import com.vishworks.assetmgmt.camunda.JobWorkers.JobException;
+import com.vishworks.assetmgmt.config.AppProperties;
 import com.vishworks.assetmgmt.db.Db;
-import com.vishworks.assetmgmt.json.GoJson;
+import com.vishworks.assetmgmt.handlers.ReportWriter;
 import com.vishworks.assetmgmt.models.BridgeResult;
 import com.vishworks.assetmgmt.models.CallState;
 import com.vishworks.assetmgmt.models.CapitalCallInput;
+import com.vishworks.assetmgmt.models.GpScope;
 import com.vishworks.assetmgmt.models.LP;
 import com.vishworks.assetmgmt.models.LPResponse;
+import com.vishworks.assetmgmt.models.LpScope;
 import com.vishworks.assetmgmt.models.Models;
 import com.vishworks.assetmgmt.models.PortfolioRisk;
 import com.vishworks.assetmgmt.util.Errors;
 import com.vishworks.assetmgmt.util.GoFmt;
-import com.vishworks.assetmgmt.util.Log;
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.springframework.stereotype.Service;
 
 /**
- * The Camunda job workers (BPMN service tasks) of the Intelligent Capital Call &amp;
- * Liquidity Orchestration use case (port of internal/handlers/handlers.go).
- *
- * <p>Each job type maps 1:1 to a service task in bpmn/*.bpmn: issueCapitalCall, notifyLPs,
- * autoFollowUp, recordLPResponse, finalizeResponses, aggregateLiquidity,
- * predictDefaultRisk, scoreLPPortfolio, triggerBridge, escalateToGP, applyGPDecision,
- * settleAndReconcile, emitLiquidityReport, markCallCancelled.
+ * The business logic of the Intelligent Capital Call &amp; Liquidity Orchestration use case,
+ * one method per BPMN service task (moved unchanged from the former Handlers class). The job
+ * worker components read the process variables, call these methods and return the variables.
  */
-public class Handlers {
-  public Db db;
-  public String sesUrl;
-  public String mlScorerUrl;
-  public String creditUrl;
-  public String reportDir;
+@Service
+public class CapitalCallService {
+  private final Db db;
+  private final CallRepository calls;
+  private final NotificationClient notifications;
+  private final RiskScorerClient riskScorer;
+  private final CreditFacilityClient creditFacility;
+  private final ReportWriter reportWriter;
   /** Public URL of the API server / LP portal. */
-  public String portalUrl;
+  private final String portalUrl;
   /** Public URL of Operate/Tasklist. */
-  public String camundaUrl;
-  public HttpClient http;
-  /** Timeout of every outbound HTTP call (http.Client{Timeout: 20s}). */
-  public Duration httpTimeout = Duration.ofSeconds(20);
+  private final String camundaUrl;
 
-  /** Wires all job types onto the worker. */
-  public void register(JobWorkers w) {
-    w.handle("issueCapitalCall", this::issueCapitalCall);
-    w.handle("notifyLPs", this::notifyLPs);
-    w.handle("autoFollowUp", this::autoFollowUp);
-    w.handle("recordLPResponse", this::recordLPResponse);
-    w.handle("finalizeResponses", this::finalizeResponses);
-    w.handle("aggregateLiquidity", this::aggregateLiquidity);
-    w.handle("predictDefaultRisk", this::predictDefaultRisk);
-    w.handle("scoreLPPortfolio", this::scoreLPPortfolio);
-    w.handle("triggerBridge", this::triggerBridge);
-    w.handle("escalateToGP", this::escalateToGP);
-    w.handle("applyGPDecision", this::applyGPDecision);
-    w.handle("settleAndReconcile", this::settleAndReconcile);
-    w.handle("emitLiquidityReport", this::emitLiquidityReport);
-    w.handle("markCallCancelled", this::markCallCancelled);
-  }
-
-  // ─── helpers ────────────────────────────────────────────────────────────
-
-  static String isoSeconds(long sec) {
-    if (sec < 1) {
-      sec = 1;
-    }
-    return "PT" + sec + "S";
-  }
-
-  void event(String callId, String lpId, String step, String detail) {
-    Object lp = (lpId == null || lpId.isEmpty()) ? null : lpId;
-    try {
-      db.exec("INSERT INTO call_events (call_id, lp_id, step, detail) VALUES ($1,$2,$3,$4)", callId, lp, step, detail);
-    } catch (SQLException e) {
-      Log.printf("event insert: %v", Errors.message(e));
-    }
-  }
-
-  <T> T postJSON(String url, Object in, TypeReference<T> out) throws IOException, InterruptedException {
-    byte[] b = GoJson.marshal(in).getBytes(StandardCharsets.UTF_8);
-    HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-        .timeout(httpTimeout)
-        .header("Content-Type", "application/json")
-        .POST(HttpRequest.BodyPublishers.ofByteArray(b))
-        .build();
-    HttpResponse<String> resp;
-    try {
-      resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    } catch (IOException e) {
-      // Same shape as Go's *url.Error: Post "<url>": <reason>
-      throw new IOException("Post \"" + url + "\": " + netReason(url, e), e);
-    }
-    if (resp.statusCode() >= 300) {
-      throw new JobErrorIO(sprintf("POST %s: HTTP %d: %s", url, resp.statusCode(), resp.body()));
-    }
-    if (out != null) {
-      return GoJson.MAPPER.readValue(resp.body(), out);
-    }
-    return null;
-  }
-
-  /** The reason text Go's net/http client gives for common transport failures. */
-  static String netReason(String url, IOException e) {
-    URI u = URI.create(url);
-    String host = u.getHost() == null ? "" : u.getHost();
-    int port = u.getPort() > 0 ? u.getPort() : ("https".equals(u.getScheme()) ? 443 : 80);
-    if (Errors.find(e, java.nio.channels.UnresolvedAddressException.class) != null
-        || Errors.find(e, java.net.UnknownHostException.class) != null) {
-      return "dial tcp: lookup " + host + ": no such host";
-    }
-    if (Errors.find(e, java.net.http.HttpConnectTimeoutException.class) != null) {
-      return "dial tcp " + host + ":" + port + ": i/o timeout";
-    }
-    if (Errors.find(e, java.net.http.HttpTimeoutException.class) != null) {
-      return "context deadline exceeded (Client.Timeout exceeded while awaiting headers)";
-    }
-    if (Errors.find(e, java.net.ConnectException.class) != null) {
-      return "dial tcp " + host + ":" + port + ": connect: connection refused";
-    }
-    return Errors.message(e);
-  }
-
-  /** A returned (non-panic) error raised from an I/O path. */
-  static final class JobErrorIO extends IOException {
-    JobErrorIO(String m) {
-      super(m);
-    }
-  }
-
-  /** Sends via mock SES. Notification failures are logged, not fatal. */
-  void email(Map<String, Object> payload) {
-    try {
-      postJSON(sesUrl + "/send", payload, null);
-    } catch (IOException e) {
-      Log.printf("[ses] send failed: %v", Errors.message(e));
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      Log.printf("[ses] send failed: %v", "interrupted");
-    }
-  }
-
-  void refreshAggregates(String callId) throws SQLException {
-    db.exec("""
-
-        		UPDATE capital_calls SET
-        		  received_amount_usd = (SELECT COALESCE(SUM(committed_usd),0) FROM capital_call_lps WHERE call_id=$1 AND status='committed'),
-        		  updated_at = NOW()
-        		WHERE call_id=$1""", callId);
-  }
-
-  void setCallStatus(String callId, String status) {
-    try {
-      db.exec("UPDATE capital_calls SET status=$2, updated_at=NOW() WHERE call_id=$1", callId, status);
-    } catch (SQLException e) {
-      Log.printf("set status: %v", Errors.message(e));
-    }
-  }
-
-  /** map[string]any literal; keys sorted like encoding/json writes a Go map. */
-  static Map<String, Object> m(Object... kv) {
-    Map<String, Object> out = new TreeMap<>();
-    for (int i = 0; i < kv.length; i += 2) {
-      out.put((String) kv[i], kv[i + 1]);
-    }
-    return out;
+  public CapitalCallService(Db db, CallRepository calls, NotificationClient notifications, RiskScorerClient riskScorer,
+      CreditFacilityClient creditFacility, ReportWriter reportWriter, AppProperties props) {
+    this.db = db;
+    this.calls = calls;
+    this.notifications = notifications;
+    this.riskScorer = riskScorer;
+    this.creditFacility = creditFacility;
+    this.reportWriter = reportWriter;
+    this.portalUrl = props.portalPublicUrl();
+    this.camundaUrl = props.camundaPublicUrl();
   }
 
   // ─── 1. issueCapitalCall ───────────────────────────────────────────────
+
+  /** Result of {@link #issueCapitalCall}: what the job worker turns into process variables. */
+  public static final class IssuedCall {
+    public List<LP> lpList;
+    public Map<String, Object> drawAmounts;
+    public int deadlineDays;
+    public long secondsPerDay;
+    public LocalDateTime deadline;
+  }
 
   /**
    * Creates the call record in the fund admin system, computes each LP's pro-rata draw
    * amount and derives the (demo-compressible) timers.
    */
-  public Map<String, Object> issueCapitalCall(Job job) throws Exception {
-    CapitalCallInput in = job.bind(CapitalCallInput.class);
+  public IssuedCall issueCapitalCall(CapitalCallInput in, String processInstanceKey) throws Exception {
     if (in.callId.isEmpty() || in.lpList == null || in.lpList.isEmpty() || in.targetAmountUSD <= 0) {
-      throw new JobException("invalid capital call input: callId, lpList and targetAmountUSD are required");
+      throw new ServiceException("invalid capital call input: callId, lpList and targetAmountUSD are required");
     }
     if (in.deadlineDays <= 0) {
       in.deadlineDays = 10;
@@ -228,10 +109,10 @@ public class Handlers {
               		INSERT INTO capital_calls (call_id, fund_id, process_instance_key, target_amount_usd, status, deadline_days, seconds_per_day, deadline_date)
               		VALUES ($1,$2,$3,$4,'issued',$5,$6,$7)
               		ON CONFLICT (call_id) DO UPDATE SET process_instance_key=EXCLUDED.process_instance_key""",
-              in.callId, in.fundId, job.processInstanceKey(), in.targetAmountUSD, in.deadlineDays, in.secondsPerDay,
+              in.callId, in.fundId, processInstanceKey, in.targetAmountUSD, in.deadlineDays, in.secondsPerDay,
               deadline);
         } catch (SQLException e) {
-          throw new JobException("insert capital_calls: " + Errors.message(e), e);
+          throw new ServiceException("insert capital_calls: " + Errors.message(e), e);
         }
         for (LP lp : in.lpList) {
           try {
@@ -241,7 +122,7 @@ public class Handlers {
                 			VALUES ($1,$2,$3,$4,$5,'issued') ON CONFLICT (call_id, lp_id) DO NOTHING""",
                 in.callId, lp.lpId, lp.email, lp.commitmentUSD, lp.drawAmountUSD);
           } catch (SQLException e) {
-            throw new JobException("insert capital_call_lps: " + Errors.message(e), e);
+            throw new ServiceException("insert capital_call_lps: " + Errors.message(e), e);
           }
         }
         c.commit();
@@ -252,36 +133,24 @@ public class Handlers {
         c.setAutoCommit(true);
       }
     }
-    event(in.callId, "", "issueCapitalCall", sprintf("Call issued for $%.0f across %d LPs (deadline %d days)",
+    calls.event(in.callId, "", "issueCapitalCall", sprintf("Call issued for $%.0f across %d LPs (deadline %d days)",
         in.targetAmountUSD, in.lpList.size(), in.deadlineDays));
 
-    // Follow-up schedule: D+3 email, D+7 call, D+10 legal notice, then deadline.
-    long fin = (in.deadlineDays - 10L) * spd;
-    Map<String, Object> out = new TreeMap<>();
-    out.put("lpList", in.lpList);
-    out.put("drawAmounts", draws);
-    out.put("deadlineDays", in.deadlineDays);
-    out.put("waitStage1", isoSeconds(3 * spd));
-    out.put("waitStage2", isoSeconds(4 * spd));
-    out.put("waitStage3", isoSeconds(3 * spd));
-    out.put("waitFinal", isoSeconds(fin));
-    out.put("callDeadline", isoSeconds((in.deadlineDays + 3L) * spd));
-    out.put("deadlineAt", GoFmt.rfc3339Utc(deadline.atZone(ZoneId.systemDefault()).toInstant()));
-    out.put("bridgeTriggered", false);
-    out.put("bridgeResult", null);
-    out.put("highRiskLPs", List.of());
-    out.put("gpDecisions", List.of());
-    out.put("settlementMode", "normal");
+    IssuedCall out = new IssuedCall();
+    out.lpList = in.lpList;
+    out.drawAmounts = draws;
+    out.deadlineDays = in.deadlineDays;
+    out.secondsPerDay = spd;
+    out.deadline = deadline;
     return out;
   }
 
   // ─── 2. notifyLPs ──────────────────────────────────────────────────────
 
-  public Map<String, Object> notifyLPs(Job job) throws Exception {
-    CapitalCallInput in = job.bind(CapitalCallInput.class);
+  public void notifyLPs(CapitalCallInput in) throws Exception {
     List<LP> lps = in.lpList == null ? List.of() : in.lpList;
     for (LP lp : lps) {
-      email(m(
+      notifications.email(m(
           "to", lp.email,
           "subject", sprintf("Capital Call %s — Action Required", in.callId),
           "body", sprintf("Dear %s, fund %s has issued capital call %s. Your pro-rata draw is $%.2f. Confirm via the secure portal: %s/?call=%s&lp=%s",
@@ -289,57 +158,33 @@ public class Handlers {
           "callId", in.callId, "lpId", lp.lpId, "type", "notification"));
     }
     db.exec("UPDATE capital_call_lps SET status='notified', updated_at=NOW() WHERE call_id=$1 AND status='issued'", in.callId);
-    setCallStatus(in.callId, "awaiting_lps");
-    event(in.callId, "", "notifyLPs", sprintf("Batch notice sent to %d LPs via SES", lps.size()));
-    return null;
+    calls.setCallStatus(in.callId, "awaiting_lps");
+    calls.event(in.callId, "", "notifyLPs", sprintf("Batch notice sent to %d LPs via SES", lps.size()));
   }
 
   // ─── child process: lp-response ────────────────────────────────────────
-
-  /** Variables visible in an lp-response child instance. */
-  public static class LpScope {
-    @JsonProperty("callId") public String callId = "";
-    @JsonProperty("lp") public LP lp = new LP();
-    @JsonProperty("amountUSD") public Double amountUSD;
-    @JsonProperty("responseStatus") public String responseStatus = "";
-    @JsonProperty("followUps") public int followUps;
-  }
 
   static final Map<Integer, String> STAGE_NAMES = Map.of(
       1, "email reminder (D+3)", 2, "phone call (D+7)", 3, "legal notice (D+10)");
 
   /** Sends a tiered escalation communication to an overdue LP. */
-  public Map<String, Object> autoFollowUp(Job job) throws Exception {
-    LpScope in = job.bind(LpScope.class);
-    int stage = atoi(job.header("stage"));
+  public void autoFollowUp(LpScope in, int stage) throws Exception {
     String name = STAGE_NAMES.getOrDefault(stage, "");
-    email(m(
+    notifications.email(m(
         "to", in.lp.email,
         "subject", sprintf("Capital Call %s — Follow-up %d: %s", in.callId, stage, name),
         "body", sprintf("LP %s has not confirmed its $%.2f draw. Escalation stage %d (%s).", in.lp.lpId, in.lp.drawAmountUSD, stage, name),
         "callId", in.callId, "lpId", in.lp.lpId, "stage", stage, "type", "followup"));
     db.exec("UPDATE capital_call_lps SET status='overdue', followup_stage=$3, updated_at=NOW() WHERE call_id=$1 AND lp_id=$2",
         in.callId, in.lp.lpId, stage);
-    event(in.callId, in.lp.lpId, "autoFollowUp", "Sent " + name);
-    return m("followUps", stage);
-  }
-
-  /** strconv.Atoi with the error ignored (0 on failure). */
-  static int atoi(String s) {
-    try {
-      return Integer.parseInt(s.startsWith("+") ? s.substring(1) : s);
-    } catch (NumberFormatException e) {
-      return 0;
-    }
+    calls.event(in.callId, in.lp.lpId, "autoFollowUp", "Sent " + name);
   }
 
   /**
    * Finalises one LP: committed / deferred (from the lpCommitment message) or defaulted
    * (deadline passed). Its output lpResponse is collected by the multi-instance call activity.
    */
-  public Map<String, Object> recordLPResponse(Job job) throws Exception {
-    LpScope in = job.bind(LpScope.class);
-    String status = job.header("status");
+  public LPResponse recordLPResponse(LpScope in, String status) throws Exception {
     double amount = 0.0;
     if (status.equals("committed")) {
       if (in.responseStatus.equals("deferred")) {
@@ -356,12 +201,12 @@ public class Handlers {
     }
     db.exec("UPDATE capital_call_lps SET status=$3, committed_usd=$4, updated_at=NOW() WHERE call_id=$1 AND lp_id=$2",
         in.callId, in.lp.lpId, status, amount);
-    refreshAggregates(in.callId);
+    calls.refreshAggregates(in.callId);
     String detail = sprintf("LP %s -> %s ($%.0f)", in.lp.lpId, status, amount);
     if (in.followUps > 0) {
       detail += sprintf(" after %d follow-up(s)", in.followUps);
     }
-    event(in.callId, in.lp.lpId, "lpResponse", detail);
+    calls.event(in.callId, in.lp.lpId, "lpResponse", detail);
     LPResponse r = new LPResponse();
     r.lpId = in.lp.lpId;
     r.email = in.lp.email;
@@ -370,7 +215,7 @@ public class Handlers {
     r.status = status;
     r.amountUSD = amount;
     r.followUps = in.followUps;
-    return m("lpResponse", r);
+    return r;
   }
 
   /**
@@ -378,9 +223,7 @@ public class Handlers {
    * hard deadline timer fires on the multi-instance: rebuilds lpResponses from the fund
    * ledger, defaulting every LP that has not committed yet.
    */
-  public Map<String, Object> finalizeResponses(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
-    String reason = job.header("reason");
+  public List<LPResponse> finalizeResponses(CallState in, String reason) throws Exception {
     List<LPResponse> out = db.query(
         "SELECT lp_id, COALESCE(email,''), commitment_usd::float8, draw_amount_usd::float8, committed_usd::float8, status, followup_stage FROM capital_call_lps WHERE call_id=$1 ORDER BY lp_id",
         rs -> {
@@ -400,15 +243,20 @@ public class Handlers {
         },
         in.callId);
     db.exec("UPDATE capital_call_lps SET status='defaulted', committed_usd=0 WHERE call_id=$1 AND status NOT IN ('committed','deferred')", in.callId);
-    event(in.callId, "", "finalizeResponses", "Response window closed early (" + reason + "); outstanding LPs marked defaulted");
-    // A Go nil slice (no rows) is encoded as null.
-    return m("lpResponses", out.isEmpty() ? null : out, "settlementMode", reason);
+    calls.event(in.callId, "", "finalizeResponses", "Response window closed early (" + reason + "); outstanding LPs marked defaulted");
+    return out;
   }
 
   // ─── 5. aggregateLiquidity ─────────────────────────────────────────────
 
-  public Map<String, Object> aggregateLiquidity(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
+  /** Result of {@link #aggregateLiquidity}. */
+  public static final class Liquidity {
+    public double committed;
+    public double gap;
+    public double pct;
+  }
+
+  public Liquidity aggregateLiquidity(CallState in) throws Exception {
     double committed = 0.0;
     for (LPResponse r : nz(in.lpResponses)) {
       if (r.status.equals("committed")) {
@@ -422,33 +270,21 @@ public class Handlers {
     }
     db.exec("UPDATE capital_calls SET status='aggregated', received_amount_usd=$2, gap_usd=$3, gap_percent=$4, updated_at=NOW() WHERE call_id=$1",
         in.callId, committed, gap, pct);
-    event(in.callId, "", "aggregateLiquidity", sprintf("Committed $%.0f of $%.0f — gap $%.0f (%.2f%%)", committed, in.targetAmountUSD, gap, pct));
-    return m("totalCommitted", round2(committed), "gapUSD", round2(gap), "gapPercent", pct);
-  }
-
-  static <T> List<T> nz(List<T> l) {
-    return l == null ? List.of() : l;
+    calls.event(in.callId, "", "aggregateLiquidity", sprintf("Committed $%.0f of $%.0f — gap $%.0f (%.2f%%)", committed, in.targetAmountUSD, gap, pct));
+    Liquidity out = new Liquidity();
+    out.committed = committed;
+    out.gap = gap;
+    out.pct = pct;
+    return out;
   }
 
   // ─── 6. predictDefaultRisk ─────────────────────────────────────────────
 
-  /** One element of the ML scorer response. */
-  public static class Score {
-    @JsonProperty("lpId") public String lpId = "";
-    @JsonProperty("riskScore") public double riskScore;
-  }
-
-  public Map<String, Object> predictDefaultRisk(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
-    List<Score> scores;
-    try {
-      scores = postJSON(mlScorerUrl + "/score", m("callId", in.callId, "lpResponses", in.lpResponses),
-          new TypeReference<List<Score>>() {});
-    } catch (IOException e) {
-      throw new JobException("ml-scorer: " + Errors.message(e), e);
-    }
+  /** Scores every LP; updates {@code in.lpResponses} in place and returns the high-risk committed LPs. */
+  public List<LPResponse> predictDefaultRisk(CallState in) throws Exception {
+    List<RiskScorerClient.Score> scores = riskScorer.score(in.callId, in.lpResponses);
     Map<String, Double> sc = new LinkedHashMap<>();
-    for (Score s : nz(scores)) {
+    for (RiskScorerClient.Score s : nz(scores)) {
       sc.put(s.lpId, s.riskScore);
     }
     List<LPResponse> high = new ArrayList<>();
@@ -460,16 +296,15 @@ public class Handlers {
         high.add(r.copy());
       }
     }
-    setCallStatus(in.callId, "risk_scored");
-    event(in.callId, "", "predictDefaultRisk", sprintf("Scored %d LPs; %d committed LP(s) above %.1f risk threshold",
+    calls.setCallStatus(in.callId, "risk_scored");
+    calls.event(in.callId, "", "predictDefaultRisk", sprintf("Scored %d LPs; %d committed LP(s) above %.1f risk threshold",
         nz(responses).size(), high.size(), Models.HIGH_RISK_THRESHOLD));
-    return m("lpResponses", responses, "highRiskLPs", high);
+    return high;
   }
 
   // ─── 6b. scoreLPPortfolio ──────────────────────────────────────────────
 
-  public Map<String, Object> scoreLPPortfolio(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
+  public PortfolioRisk scoreLPPortfolio(CallState in) throws Exception {
     List<LPResponse> rs = nz(in.lpResponses);
     double total = 0.0;
     for (LPResponse r : rs) {
@@ -499,44 +334,28 @@ public class Handlers {
     pr.averageRiskScore = GoFmt.round(sumRisk / Math.max(1, rs.size()) * 10000) / 10000;
     pr.expectedLossUSD = round2(el);
     db.exec("UPDATE capital_calls SET concentration_hhi=$2 WHERE call_id=$1", in.callId, pr.concentrationScore);
-    event(in.callId, "", "scoreLPPortfolio", sprintf("HHI %.4f, top risky %v", pr.concentrationScore, top));
-    return m("portfolioRisk", pr);
+    calls.event(in.callId, "", "scoreLPPortfolio", sprintf("HHI %.4f, top risky %v", pr.concentrationScore, top));
+    return pr;
   }
 
   // ─── 7. triggerBridge ──────────────────────────────────────────────────
 
-  public Map<String, Object> triggerBridge(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
-    BridgeResult br;
-    try {
-      br = postJSON(creditUrl + "/drawdown", m("callId", in.callId, "amount", in.gapUSD), new TypeReference<BridgeResult>() {});
-    } catch (IOException e) {
-      throw new JobException("credit facility: " + Errors.message(e), e);
-    }
+  public BridgeResult triggerBridge(CallState in) throws Exception {
+    BridgeResult br = creditFacility.drawdown(in.callId, in.gapUSD);
     if (br == null) {
       br = new BridgeResult();
     }
     db.exec("UPDATE capital_calls SET bridge_triggered=TRUE, bridge_confirmation=$2, bridge_amount_usd=$3, bridge_fee_usd=$4 WHERE call_id=$1",
         in.callId, br.confirmationId, br.drawdownUSD, br.feeUSD);
-    event(in.callId, "", "triggerBridge", sprintf("Credit line drawdown $%.0f confirmed %s (fee $%.0f)", br.drawdownUSD, br.confirmationId, br.feeUSD));
-    return m("bridgeTriggered", true, "bridgeResult", br);
+    calls.event(in.callId, "", "triggerBridge", sprintf("Credit line drawdown $%.0f confirmed %s (fee $%.0f)", br.drawdownUSD, br.confirmationId, br.feeUSD));
+    return br;
   }
 
   // ─── 8. escalateToGP / gpApprovalGate ──────────────────────────────────
 
-  /** Variables visible in one GP review sub-process instance. */
-  public static class GpScope {
-    @JsonProperty("callId") public String callId = "";
-    @JsonProperty("highRiskLp") public LPResponse highRiskLp = new LPResponse();
-    @JsonProperty("gpAction") public String gpAction = "";
-    @JsonProperty("gpName") public String gpName = "";
-    @JsonProperty("gpComment") public String gpComment = "";
-  }
-
-  public Map<String, Object> escalateToGP(Job job) throws Exception {
-    GpScope in = job.bind(GpScope.class);
+  public void escalateToGP(GpScope in) throws Exception {
     LPResponse lp = in.highRiskLp;
-    email(m(
+    notifications.email(m(
         "to", "#gp-investment-committee (Slack)",
         "subject", sprintf("[ESCALATION] High-risk LP %s on call %s", lp.lpId, in.callId),
         "body", sprintf("LP %s committed $%.2f but has default risk %.2f (> %.1f). Decide WAIVE or ENFORCE in Tasklist (%s/tasklist) or via POST /api/capital-calls/%s/gp-decision.",
@@ -544,17 +363,16 @@ public class Handlers {
         "callId", in.callId, "lpId", lp.lpId, "type", "escalation"));
     db.exec("INSERT INTO gp_escalations (call_id, lp_id, risk_score) VALUES ($1,$2,$3) ON CONFLICT (call_id, lp_id) DO NOTHING",
         in.callId, lp.lpId, lp.riskScore);
-    setCallStatus(in.callId, "awaiting_gp");
-    event(in.callId, lp.lpId, "escalateToGP", sprintf("Escalated to GP (risk %.2f); awaiting approval gate", lp.riskScore));
-    return null;
+    calls.setCallStatus(in.callId, "awaiting_gp");
+    calls.event(in.callId, lp.lpId, "escalateToGP", sprintf("Escalated to GP (risk %.2f); awaiting approval gate", lp.riskScore));
   }
 
   /**
    * Runs after the GP approval gate (Tasklist user task or the gpDecision message).
    * "enforce" issues a compliance warning; the LP's commitment stays recorded either way.
+   * Normalises {@code in.gpAction} and {@code in.gpName} in place.
    */
-  public Map<String, Object> applyGPDecision(Job job) throws Exception {
-    GpScope in = job.bind(GpScope.class);
+  public void applyGPDecision(GpScope in) throws Exception {
     if (!in.gpAction.equals("enforce")) {
       in.gpAction = "waive";
     }
@@ -563,13 +381,13 @@ public class Handlers {
     }
     LPResponse lp = in.highRiskLp;
     if (in.gpAction.equals("enforce")) {
-      email(m(
+      notifications.email(m(
           "to", lp.email,
           "subject", sprintf("[COMPLIANCE WARNING] Capital Call %s — Enforcement Notice", in.callId),
           "body", sprintf("The General Partner (%s) has issued an enforcement notice on your $%.2f commitment. Your contribution remains recorded and is subject to compliance review.", in.gpName, lp.amountUSD),
           "callId", in.callId, "lpId", lp.lpId, "type", "enforcement_warning"));
     }
-    email(m(
+    notifications.email(m(
         "to", "#gp-investment-committee (Slack)",
         "subject", sprintf("[GP DECISION] %s %s on call %s", in.gpName, in.gpAction, in.callId),
         "body", sprintf("Decision for LP %s: %s. Comment: %s", lp.lpId, in.gpAction, in.gpComment),
@@ -577,14 +395,12 @@ public class Handlers {
     db.exec("UPDATE gp_escalations SET status='decided', action=$3, gp_name=$4, decided_at=NOW() WHERE call_id=$1 AND lp_id=$2",
         in.callId, lp.lpId, in.gpAction, in.gpName);
     db.exec("UPDATE capital_call_lps SET gp_action=$3 WHERE call_id=$1 AND lp_id=$2", in.callId, lp.lpId, in.gpAction);
-    event(in.callId, lp.lpId, "gpApprovalGate", sprintf("GP %s decided: %s", in.gpName, in.gpAction));
-    return m("gpAction", in.gpAction, "gpName", in.gpName);
+    calls.event(in.callId, lp.lpId, "gpApprovalGate", sprintf("GP %s decided: %s", in.gpName, in.gpAction));
   }
 
   // ─── 9. settleAndReconcile ─────────────────────────────────────────────
 
-  public Map<String, Object> settleAndReconcile(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
+  public int settleAndReconcile(CallState in) throws Exception {
     int wires = 0;
     try (Connection c = db.getConnection()) {
       c.setAutoCommit(false);
@@ -624,39 +440,31 @@ public class Handlers {
         c.setAutoCommit(true);
       }
     }
-    event(in.callId, "", "settleAndReconcile", sprintf("%d wire transfers booked; double-entry ledger reconciled", wires));
-    return m("wiresSettled", wires);
+    calls.event(in.callId, "", "settleAndReconcile", sprintf("%d wire transfers booked; double-entry ledger reconciled", wires));
+    return wires;
   }
 
   // ─── 10. emitLiquidityReport ───────────────────────────────────────────
 
-  public Map<String, Object> emitLiquidityReport(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
-    String[] paths = ReportWriter.writeReport(this, in, job.processInstanceKey());
-    String jsonPath = paths[0], pdfPath = paths[1];
+  /** Writes reports/{callId}.json and .pdf; returns {jsonUrlPath, pdfUrlPath}. */
+  public String[] emitLiquidityReport(CallState in, String processInstanceKey) throws Exception {
+    String[] paths = reportWriter.writeReport(in, processInstanceKey);
     db.exec("UPDATE capital_calls SET status='completed', report_path=$2, updated_at=NOW() WHERE call_id=$1",
         in.callId, "/reports/" + in.callId + ".pdf");
-    event(in.callId, "", "emitLiquidityReport", "Regulatory liquidity report emitted (PDF + JSON)");
-    return m("reportPdf", pdfPath, "reportJson", jsonPath);
+    calls.event(in.callId, "", "emitLiquidityReport", "Regulatory liquidity report emitted (PDF + JSON)");
+    return paths;
   }
 
   // ─── cancel path ───────────────────────────────────────────────────────
 
-  public Map<String, Object> markCallCancelled(Job job) throws Exception {
-    CallState in = job.bind(CallState.class);
+  public void markCallCancelled(CallState in) throws Exception {
     db.exec("UPDATE capital_call_lps SET status='cancelled' WHERE call_id=$1", in.callId);
-    setCallStatus(in.callId, "cancelled");
+    calls.setCallStatus(in.callId, "cancelled");
     for (LP lp : nz(in.lpList)) {
-      email(m("to", lp.email, "subject", sprintf("Capital Call %s — Cancelled", in.callId),
+      notifications.email(m("to", lp.email, "subject", sprintf("Capital Call %s — Cancelled", in.callId),
           "body", "The General Partner has cancelled this capital call. No action is required.",
           "callId", in.callId, "lpId", lp.lpId, "type", "cancellation"));
     }
-    event(in.callId, "", "markCallCancelled", "Capital call cancelled by GP; LP response processes terminated");
-    return null;
-  }
-
-  /** UTC "now", used by the report. */
-  static java.time.ZonedDateTime nowUtc() {
-    return java.time.ZonedDateTime.now(ZoneOffset.UTC);
+    calls.event(in.callId, "", "markCallCancelled", "Capital call cancelled by GP; LP response processes terminated");
   }
 }

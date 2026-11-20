@@ -50,20 +50,17 @@ public final class ApiServerMain {
     this.dashboardHtml = dashboardHtml;
   }
 
-  public static void main(String[] args) throws Exception {
-    Db pool;
-    try {
-      pool = Db.connect(get("DATABASE_URL", "postgres://assetmgmt:assetmgmt@localhost:5433/assetmgmt?sslmode=disable"));
-    } catch (Exception e) {
-      Log.fatal(e);
-      return;
-    }
+  /**
+   * Starts the HTTP server on LISTEN_ADDR (default :8090). The database pool and the Camunda
+   * client are provided by the Spring context of the API role (see api.ApiApplication).
+   */
+  public static void serve(Db pool, CamundaClient cam) throws Exception {
     byte[] html;
     try (InputStream in = ApiServerMain.class.getResourceAsStream("/static/dashboard.html")) {
       html = in.readAllBytes(); // embedded like //go:embed dashboard.html
     }
     ApiServerMain s = new ApiServerMain(pool,
-        Camunda.newClient(get("CAMUNDA_REST_ADDRESS", "http://localhost:8080")),
+        cam,
         get("CAMUNDA_PUBLIC_URL", "http://localhost:8080"),
         get("SES_PUBLIC_URL", "http://localhost:8081"),
         html);
@@ -253,9 +250,9 @@ public final class ApiServerMain {
     ProcessInstanceEvent res;
     try {
       res = cam.newCreateInstanceCommand()
-          .bpmnProcessId(Models.PROCESS_CAPITAL_CALL)
+          .bpmnProcessId("capital-call")
           .latestVersion()
-          .variables(GoJson.marshal(in))
+          .variables(in)
           .send()
           .join();
     } catch (RuntimeException e) {
@@ -311,7 +308,7 @@ public final class ApiServerMain {
     String key = callId + ":" + body.lpId;
     try {
       cam.newPublishMessageCommand()
-          .messageName(Models.MSG_LP_COMMITMENT)
+          .messageName("lpCommitment")
           .correlationKey(key)
           .messageId("lpCommitment-" + key)
           .timeToLive(Duration.ofHours(1))

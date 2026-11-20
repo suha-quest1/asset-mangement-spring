@@ -6,7 +6,7 @@ This guide covers starting and stopping the local stack and gives a step-by-step
 |---|---|
 | **Use case** | `use_case.pdf`: Asset Management, Intelligent Capital Call & Liquidity Orchestration |
 | **Orchestrator** | Camunda 8.10.9, the latest stable release, self-managed and open source. It runs as the lightweight "orchestration cluster" container: Zeebe engine, Operate, Tasklist and REST API, with H2 secondary storage. |
-| **Implementation** | Java 21 (Maven). The job workers and API server use the official Camunda 8 Java client (`io.camunda:camunda-client-java` 8.10.9) over the Orchestration Cluster REST API (`/v2`). Migrated from the original Go implementation, see [GO_TO_JAVA_MIGRATION_REPORT.md](GO_TO_JAVA_MIGRATION_REPORT.md). |
+| **Implementation** | Java 21 (Maven). The job workers and API server are Spring Boot applications using the Camunda Spring Boot Starter (`io.camunda:camunda-spring-boot-starter` 8.10.9) over the Orchestration Cluster REST API (`/v2`). Migrated from the original Go implementation, see [GO_TO_JAVA_MIGRATION_AUDIT.md](GO_TO_JAVA_MIGRATION_AUDIT.md). |
 | **Ported from** | `../temporal-asset-management`, the Temporal version of the same use case |
 
 ---
@@ -22,13 +22,16 @@ camunda-asset-management/
 ├── pom.xml                    # Maven build: one executable jar for every service
 ├── src/main/java/com/vishworks/assetmgmt/
 │   ├── Main.java              # entry point: java -jar … worker|apiserver|mockses|mockcreditfacility|demodriver
-│   ├── cmd/WorkerMain         # job workers (all service tasks) + auto-deploys bpmn/
+│   ├── worker/                # Spring Boot "worker" role: one job-worker method per job type (CapitalCallWorkers, LpResponseWorkers)
+│   ├── service/               # business logic of every BPMN service task, DB and HTTP clients
+│   ├── api/                   # Spring Boot "apiserver" role (starts cmd/ApiServerMain)
 │   ├── cmd/ApiServerMain      # REST/webhook endpoints + live dashboard (:8090)
 │   ├── cmd/DemoDriverMain     # scripted 10-LP demo
 │   ├── cmd/MockSesMain        # email / Slack log viewer (:8081)
 │   ├── cmd/MockCreditFacilityMain # bridge credit line stub (:8082)
-│   ├── camunda/               # Camunda Java client setup + job worker registration (retries, back-off)
-│   ├── handlers/              # business logic of every BPMN service task + liquidity report
+│   ├── camunda/               # job-type constants, BPMN deployment on start-up, Camunda error helpers
+│   ├── handlers/              # liquidity report (JSON + PDF)
+│   ├── config/                # beans shared by both roles (Postgres pool, Camunda JSON mapper, settings)
 │   ├── db/  http/  json/  models/  report/  util/
 ├── src/main/resources/static/dashboard.html   # the dashboard (unchanged)
 ├── services/ml-scorer/        # Flask default-risk scoring model (:5001)

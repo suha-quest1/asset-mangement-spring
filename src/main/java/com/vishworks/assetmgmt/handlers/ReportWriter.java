@@ -5,12 +5,15 @@ import static com.vishworks.assetmgmt.util.GoFmt.sprintf;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.vishworks.assetmgmt.config.AppProperties;
+import com.vishworks.assetmgmt.db.Db;
 import com.vishworks.assetmgmt.json.GoJson;
 import com.vishworks.assetmgmt.models.CallState;
 import com.vishworks.assetmgmt.models.GPDecision;
 import com.vishworks.assetmgmt.models.LPResponse;
 import com.vishworks.assetmgmt.report.Pdf;
 import com.vishworks.assetmgmt.util.GoFmt;
+import com.vishworks.assetmgmt.util.Lists;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,10 +22,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.springframework.stereotype.Component;
 
 /** Regulatory liquidity report as JSON and PDF (port of internal/handlers/report.go). */
-final class ReportWriter {
-  private ReportWriter() {}
+@Component
+public class ReportWriter {
+  private final Db db;
+  private final String reportDir;
+
+  public ReportWriter(Db db, AppProperties props) {
+    this.db = db;
+    this.reportDir = props.reportDir();
+  }
 
   /** usd formats a float as $1,234,567.89 (thousands separators). */
   static String usd(double f) {
@@ -54,8 +65,8 @@ final class ReportWriter {
   }
 
   /** Writes reports/{callId}.json and .pdf; returns {jsonUrlPath, pdfUrlPath}. */
-  static String[] writeReport(Handlers h, CallState in, String pik) throws Exception {
-    List<LedgerRow> ledger = h.db.query(
+  public String[] writeReport(CallState in, String pik) throws Exception {
+    List<LedgerRow> ledger = db.query(
         "SELECT COALESCE(lp_id,''), debit_account, credit_account, amount_usd::float8, entry_type, COALESCE(wire_reference,'') FROM ledger_entries WHERE call_id=$1 ORDER BY id",
         rs -> {
           LedgerRow r = new LedgerRow();
@@ -72,8 +83,8 @@ final class ReportWriter {
       ledger = null; // nil slice in Go → "ledger": null
     }
 
-    ZonedDateTime now = Handlers.nowUtc();
-    Path dir = Path.of(h.reportDir);
+    ZonedDateTime now = nowUtc();
+    Path dir = Path.of(reportDir);
     Files.createDirectories(dir);
     Path jsonPath = dir.resolve(in.callId + ".json");
     Files.writeString(jsonPath, renderJson(in, pik, ledger, now), StandardCharsets.UTF_8);
@@ -81,6 +92,11 @@ final class ReportWriter {
     Path pdfPath = dir.resolve(in.callId + ".pdf");
     Files.write(pdfPath, pdf);
     return new String[] {"/reports/" + in.callId + ".json", "/reports/" + in.callId + ".pdf"};
+  }
+
+  /** UTC "now", used by the report. */
+  static ZonedDateTime nowUtc() {
+    return ZonedDateTime.now(java.time.ZoneOffset.UTC);
   }
 
   /** The JSON report document (json.MarshalIndent of the Go map). */
@@ -127,7 +143,7 @@ final class ReportWriter {
     }
     p.heading("2. LP responses and default-risk scores");
     p.mono(sprintf("%-7s %-10s %16s %16s %6s %9s", "LP", "Status", "Draw", "Funded", "Risk", "FollowUps"));
-    for (LPResponse r : Handlers.nz(in.lpResponses)) {
+    for (LPResponse r : Lists.nz(in.lpResponses)) {
       p.mono(sprintf("%-7s %-10s %16s %16s %6.2f %9d", r.lpId, r.status, usd(r.drawAmountUSD), usd(r.amountUSD), r.riskScore, r.followUps));
     }
     if (in.portfolioRisk != null) {
@@ -137,7 +153,7 @@ final class ReportWriter {
       p.mono(sprintf("Top risky LPs: %s", GoFmt.slice(in.portfolioRisk.topRiskyLPs)));
     }
     p.heading("4. GP escalations (human-in-the-loop)");
-    List<GPDecision> decisions = Handlers.nz(in.gpDecisions);
+    List<GPDecision> decisions = Lists.nz(in.gpDecisions);
     if (decisions.isEmpty()) {
       p.text("No LP exceeded the 0.70 risk threshold.");
     }
